@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # 本番用サーバー
-FROM nginx:alpine
+FROM nginx:alpine AS frontend
 
 # ビルド成果物をnginxにコピー
 COPY --from=builder /app/dist /usr/share/nginx/html

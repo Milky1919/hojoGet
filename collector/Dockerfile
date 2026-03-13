@@ -23,7 +23,7 @@ RUN chmod 0644 /etc/cron.d/hojo-collector
 RUN touch /var/log/cron.log
 
 # プロダクション用イメージ
-FROM python:3.11-slim
+FROM python:3.11-slim AS collector
 
 WORKDIR /app
 
