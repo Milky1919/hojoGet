@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-hojo_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-hojo_password}
+      POSTGRES_DB: ${DB_NAME:-hojo_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-hojo_user}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-hojo_user}:${DB_PASSWORD:-hojo_password}@db:5432/${DB_NAME:-hojo_db}
+      API_KEY: ${API_KEY:-changeme}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-hojo_user}:${DB_PASSWORD:-hojo_password}@db:5432/${DB_NAME:-hojo_db}
+      JGRANTS_API_KEY: ${JGRANTS_API_KEY:-}
+    volumes:
+      - ./collector:/app
+    # 定期実行はcron内臓コンテナで行うため、コマンドはcronデーモン起動
+    command: /usr/sbin/crond -f -l 8
+
+volumes:
+  postgres_data:
