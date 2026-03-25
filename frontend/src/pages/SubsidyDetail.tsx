@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { format } from 'date-fns'
 import { ja } from 'date-fns/locale'
@@ -10,6 +10,8 @@ interface Subsidy {
     title: string
     description: string
     region: string
+    prefecture: string
+    city: string
     organization: string
     status: string
     start_date: string
@@ -26,29 +28,34 @@ interface Subsidy {
     updated_at: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
 const API_KEY = import.meta.env.VITE_API_KEY || 'changeme'
 
 export default function SubsidyDetail() {
     const { id } = useParams<{ id: string }>()
+    const navigate = useNavigate()
     const [subsidy, setSubsidy] = useState<Subsidy | null>(null)
     const [loading, setLoading] = useState(true)
     const [note, setNote] = useState('')
     const [saving, setSaving] = useState(false)
     const [lastSaved, setLastSaved] = useState<Date | null>(null)
+    // 編集中フラグ：定期リフレッシュによるノート上書きを防ぐ
+    const isDirtyRef = useRef(false)
 
     useEffect(() => {
-        fetchSubsidy()
-        // メモの定期的な更新（10秒ごと）
-        const interval = setInterval(fetchSubsidy, 10000)
+        fetchSubsidy(true)
+        const interval = setInterval(() => fetchSubsidy(false), 10000)
         return () => clearInterval(interval)
     }, [id])
 
-    const fetchSubsidy = async () => {
+    const fetchSubsidy = async (isInitial: boolean) => {
         try {
             const response = await axios.get(`${API_BASE}/api/subsidies/${id}`)
             setSubsidy(response.data)
-            setNote(response.data.note || '')
+            // 初回ロードか、編集中でない場合のみノートを更新
+            if (isInitial || !isDirtyRef.current) {
+                setNote(response.data.note || '')
+            }
         } catch (error) {
             console.error('Failed to fetch subsidy:', error)
         } finally {
@@ -56,7 +63,6 @@ export default function SubsidyDetail() {
         }
     }
 
-    // デバウンス付きのメモ保存
     const saveNote = useCallback(
         debounce(async (content: string) => {
             if (!id) return
@@ -68,6 +74,7 @@ export default function SubsidyDetail() {
                     { headers: { 'X-API-Key': API_KEY } }
                 )
                 setLastSaved(new Date())
+                isDirtyRef.current = false
             } catch (error) {
                 console.error('Failed to save note:', error)
             } finally {
@@ -80,6 +87,7 @@ export default function SubsidyDetail() {
     const handleNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newNote = e.target.value
         setNote(newNote)
+        isDirtyRef.current = true
         saveNote(newNote)
     }
 
@@ -101,9 +109,9 @@ export default function SubsidyDetail() {
         return (
             <div className="text-center py-12">
                 <p className="text-gray-500">補助金情報が見つかりませんでした</p>
-                <Link to="/" className="mt-4 inline-block text-blue-600 hover:text-blue-800">
+                <button onClick={() => navigate(-1)} className="mt-4 inline-block text-blue-600 hover:text-blue-800">
                     ← 一覧に戻る
-                </Link>
+                </button>
             </div>
         )
     }
@@ -111,9 +119,9 @@ export default function SubsidyDetail() {
     return (
         <div>
             <div className="mb-6">
-                <Link to="/" className="text-blue-600 hover:text-blue-800">
+                <button onClick={() => navigate(-1)} className="text-blue-600 hover:text-blue-800">
                     ← 一覧に戻る
-                </Link>
+                </button>
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -146,7 +154,10 @@ export default function SubsidyDetail() {
                             <div className="space-y-4">
                                 <div>
                                     <h3 className="font-medium text-gray-700 mb-1">地域</h3>
-                                    <p className="text-gray-900">{subsidy.region || '未設定'}</p>
+                                    <p className="text-gray-900">
+                                        {subsidy.prefecture || subsidy.region || '未設定'}
+                                        {subsidy.city ? ` ${subsidy.city}` : ''}
+                                    </p>
                                 </div>
                                 <div>
                                     <h3 className="font-medium text-gray-700 mb-1">実施機関</h3>

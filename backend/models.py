@@ -15,6 +15,8 @@ class Subsidy(Base):
     title = Column(Text, nullable=False)
     description = Column(Text)
     region = Column(Text)
+    prefecture = Column(Text)  # 都道府県
+    city = Column(Text)        # 市区町村
     organization = Column(Text)
     status = Column(String(100))  # e.g., '公募中', '終了'
     start_date = Column(Date)

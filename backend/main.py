@@ -16,6 +16,7 @@ from models import Base, Subsidy
 # 環境変数
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://hojo_user:hojo_password@localhost:5432/hojo_db")
 API_KEY = os.getenv("API_KEY", "changeme")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
 # データベース接続
 engine = create_engine(DATABASE_URL)
@@ -29,7 +30,7 @@ app = FastAPI(title="補助金ポータル API", version="1.0.0")
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,6 +43,8 @@ class SubsidyCreate(BaseModel):
     title: str
     description: Optional[str] = None
     region: Optional[str] = None
+    prefecture: Optional[str] = None
+    city: Optional[str] = None
     organization: Optional[str] = None
     status: Optional[str] = None
     start_date: Optional[date] = None
@@ -92,19 +95,41 @@ async def global_exception_handler(request, exc):
         content={"detail": "Internal server error"},
     )
 
+# 都道府県・市区町村一覧取得
+@app.get("/api/regions")
+def get_regions(db: Session = Depends(get_db)):
+    rows = db.query(Subsidy.prefecture, Subsidy.city).filter(
+        Subsidy.prefecture.isnot(None),
+        Subsidy.prefecture != ""
+    ).distinct().order_by(Subsidy.prefecture, Subsidy.city).all()
+
+    result: dict = {}
+    for row in rows:
+        pref = row.prefecture or ""
+        city = row.city or ""
+        if not pref:
+            continue
+        if pref not in result:
+            result[pref] = []
+        if city and city not in result[pref]:
+            result[pref].append(city)
+    return result
+
 # 補助金一覧取得
 @app.get("/api/subsidies", response_model=List[SubsidyResponse])
 def get_subsidies(
     db: Session = Depends(get_db),
     q: Optional[str] = Query(None, description="検索キーワード"),
-    region: Optional[str] = Query(None, description="地域"),
+    region: Optional[str] = Query(None, description="地域（後方互換）"),
+    prefecture: Optional[str] = Query(None, description="都道府県"),
+    city: Optional[str] = Query(None, description="市区町村"),
     status: Optional[str] = Query(None, description="ステータス"),
     include_expired: bool = Query(False, description="期限切れを含む"),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
 ):
     query = db.query(Subsidy)
-    
+
     # キーワード検索
     if q:
         query = query.filter(
@@ -114,10 +139,17 @@ def get_subsidies(
                 Subsidy.region.ilike(f"%{q}%"),
             )
         )
-    
+
     # フィルタ
+    if prefecture:
+        query = query.filter(Subsidy.prefecture == prefecture)
+    if city:
+        # city一致 OR city未設定（都道府県全体の補助金）も含める
+        query = query.filter(
+            (Subsidy.city == city) | (Subsidy.city == None) | (Subsidy.city == "")
+        )
     if region:
-        query = query.filter(Subsidy.region.ilike(f"%{region}%"))
+        query = query.filter(Subsidy.prefecture.ilike(f"%{region}%"))
     if status:
         query = query.filter(Subsidy.status == status)
     
